@@ -8,6 +8,9 @@
 /* ───────────────────────────────────────────────────────────────
    State
 ─────────────────────────────────────────────────────────────── */
+/**
+ * State object holding the application's current data and configurations.
+ */
 const state = {
   zones: [],
   gates: [],
@@ -20,62 +23,76 @@ const state = {
   markers: [],
   ws: null,
   geminiKey: '',
+  isAITyping: false,
 };
 
-/* ───────────────────────────────────────────────────────────────
-   DOM references
-─────────────────────────────────────────────────────────────── */
+/**
+ * Utility to get an element by ID.
+ * @param {string} id - The element ID.
+ * @returns {HTMLElement|null}
+ */
 const $ = (id) => document.getElementById(id);
 
-/* ───────────────────────────────────────────────────────────────
-   Init
-─────────────────────────────────────────────────────────────── */
+/**
+ * Main entry point: initializes all app components and fetches configuration.
+ * @async
+ */
 async function init() {
-  setupTabs();
-  setupContrastToggle();
-  setupChatForm();
-  setupQuickPrompts();
-  setupSosBubble();
-  setupIntersectionObserver();
-  registerServiceWorker();
-  await loadConfig();
-  connectWebSocket();
+  try {
+    setupTabs();
+    setupContrastToggle();
+    setupChatForm();
+    setupQuickPrompts();
+    setupSosBubble();
+    setupIntersectionObserver();
+    registerServiceWorker();
+    await loadConfig();
+    connectWebSocket();
 
-  // Wait for Firebase modules to load if not already available
-  if (!window.__firebaseModules) {
-    console.log('Waiting for Firebase modules...');
-    window.__onFirebaseLoaded = () => initFirebase();
-  } else {
-    initFirebase();
+    // Wait for Firebase modules to load if not already available
+    if (!window.__firebaseModules) {
+      window.__onFirebaseLoaded = () => initFirebase();
+    } else {
+      initFirebase();
+    }
+  } catch (err) {
+    showToast('Failed to initialize application. Please refresh.');
   }
 }
 
+/**
+ * Registers the service worker for PWA support.
+ */
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js')
-        .then(() => console.log('SW registered'))
-        .catch(err => console.error('SW registration failed', err));
+      navigator.serviceWorker.register('sw.js').catch(() => {
+        /* Error handled silently for offline support */
+      });
     });
   }
 }
 
-let isPageVisible = true;
+/**
+ * Sets up an IntersectionObserver to detect when the app is visible,
+ * reducing resource usage when the tab is backgrounded.
+ */
 function setupIntersectionObserver() {
   const observer = new IntersectionObserver((entries) => {
     isPageVisible = entries[0].isIntersecting;
   }, { threshold: 0.1 });
   
-  // Observe the main content area
   observer.observe(document.querySelector('main'));
 
-  // Also handle visibility API
   document.addEventListener('visibilitychange', () => {
     isPageVisible = document.visibilityState === 'visible';
   });
 }
 
 /* ── SOS Speed Dial Setup ── */
+/**
+ * Initializes the SOS emergency bubble and its speed dial options.
+ */
 function setupSosBubble() {
   const sosBtn = $('sos-btn');
   const sosOptions = $('sos-options');
@@ -101,20 +118,24 @@ function setupSosBubble() {
   // Handle option clicks
   const optionBtns = document.querySelectorAll('.sos-option-btn');
   optionBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', () => {
       const type = btn.getAttribute('data-type');
-      const zone = state.recommendation?.gateId ? 'near ' + state.recommendation.gateId.replace('-', ' ') : 'your location';
+      const zone = state.recommendation?.gateId 
+        ? 'near ' + state.recommendation.gateId.replace('-', ' ') 
+        : 'your location';
       
       sosBtn.classList.remove('active');
       sosOptions.classList.remove('active');
       sosBtn.setAttribute('aria-expanded', 'false');
 
-      if (type === 'seat') {
-        showToast(`💺 Seat issue reported. A staff member will check on you shortly.`, 5000);
-      } else if (type === 'help') {
-        showToast(`🙋 General help requested. Assistance is on the way to ${zone}.`, 5000);
-      } else if (type === 'emergency') {
-        showToast(`🚨 SOS Alert sent to Stadium Security at ${zone}! Help is on the way immediately.`, 8000);
+      const messages = {
+        seat: `💺 Seat issue reported. A staff member will check on you shortly.`,
+        help: `🙋 General help requested. Assistance is on the way to ${zone}.`,
+        emergency: `🚨 SOS Alert sent to Stadium Security at ${zone}! Help is on the way immediately.`,
+      };
+
+      if (messages[type]) {
+        showToast(messages[type], type === 'emergency' ? 8000 : 5000);
       }
     });
   });
@@ -123,13 +144,17 @@ function setupSosBubble() {
 /* ───────────────────────────────────────────────────────────────
    Config (from server — no keys hardcoded in frontend)
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Fetches the application configuration from the server.
+ * @async
+ */
 async function loadConfig() {
   try {
     const res = await fetch('/api/auth/config');
+    if (!res.ok) throw new Error('Config fetch failed');
     state.firebaseConfig = await res.json();
     state.geminiKey = state.firebaseConfig.geminiApiKey || '';
   } catch (err) {
-    console.warn('Could not load config, running in offline/demo mode');
     showToast('Running in demo mode — live data unavailable');
   }
 }
@@ -137,38 +162,41 @@ async function loadConfig() {
 /* ───────────────────────────────────────────────────────────────
    Firebase Auth + Firestore real-time listeners
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Initializes Firebase Authentication and Firestore real-time listeners.
+ */
 function initFirebase() {
   const fb = window.__firebaseModules;
   if (!fb || !state.firebaseConfig?.projectId) return;
 
-  const app = fb.initializeApp(state.firebaseConfig);
-  const auth = fb.getAuth(app);
-  const db = fb.getFirestore(app);
-
-  // Auth state listener
-  fb.onAuthStateChanged(auth, (user) => {
-    state.user = user;
-    updateAuthButton(user);
-  });
-
-  // Auth button handler
-  $('auth-btn').addEventListener('click', async () => {
-    if (state.user) {
-      await fb.signOut(auth);
-      showToast('Signed out successfully');
-    } else {
-      const provider = new fb.GoogleAuthProvider();
-      try {
-        await fb.signInWithPopup(auth, provider);
-        showToast('Welcome to SmartStadium AI! 🏟️');
-      } catch (err) {
-        showToast('Sign-in failed. Please try again.');
-      }
-    }
-  });
-
-  // Firestore real-time zone updates (replaces polling)
   try {
+    const app = fb.initializeApp(state.firebaseConfig);
+    const auth = fb.getAuth(app);
+    const db = fb.getFirestore(app);
+
+    // Auth state listener
+    fb.onAuthStateChanged(auth, (user) => {
+      state.user = user;
+      updateAuthButton(user);
+    });
+
+    // Auth button handler
+    $('auth-btn').addEventListener('click', async () => {
+      try {
+        if (state.user) {
+          await fb.signOut(auth);
+          showToast('Signed out successfully');
+        } else {
+          const provider = new fb.GoogleAuthProvider();
+          await fb.signInWithPopup(auth, provider);
+          showToast('Welcome to SmartStadium AI! 🏟️');
+        }
+      } catch (err) {
+        showToast('Authentication failed. Please try again.');
+      }
+    });
+
+    // Firestore real-time zone updates
     const zonesCol = fb.collection(db, 'zones');
     fb.onSnapshot(zonesCol, (snapshot) => {
       const zones = [];
@@ -179,11 +207,15 @@ function initFirebase() {
         updateStats(zones, state.gates);
       }
     });
-  } catch {
-    // Firebase not configured — fall back to WebSocket data
+  } catch (err) {
+    /* Fallback to WebSocket handled in connectWebSocket */
   }
 }
 
+/**
+ * Updates the authentication button label and accessibility attributes.
+ * @param {Object|null} user - The current Firebase user.
+ */
 function updateAuthButton(user) {
   const btn = $('auth-btn');
   const label = $('auth-btn-label');
@@ -199,6 +231,9 @@ function updateAuthButton(user) {
 /* ───────────────────────────────────────────────────────────────
    WebSocket — real-time crowd data
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Establishes a WebSocket connection for real-time crowd data syncing.
+ */
 function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${protocol}://${location.host}`);
@@ -210,7 +245,7 @@ function connectWebSocket() {
   });
 
   ws.addEventListener('message', (event) => {
-    // Efficiency: Ignore updates if tab is backgrounded
+    // Ignore updates if tab is backgrounded
     if (!isPageVisible) return;
 
     try {
@@ -224,7 +259,9 @@ function connectWebSocket() {
         updateBanner(data.zones);
         if (state.heatmap) updateHeatmap(data.zones);
       }
-    } catch {}
+    } catch (err) {
+      /* Silently handle malformed messages */
+    }
   });
 
   ws.addEventListener('close', () => {
@@ -238,82 +275,121 @@ function connectWebSocket() {
 /* ───────────────────────────────────────────────────────────────
    Render: Zones
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Renders the list of stadium zones and their density status.
+ * @param {Array<Object>} zones - List of zone objects.
+ */
 function renderZones(zones) {
   const container = $('zone-list');
+  if (!container) return;
+
   container.innerHTML = zones
     .sort((a, b) => b.density - a.density)
-    .map(
-      (z) => `
-      <div class="zone-row" role="listitem">
-        <span class="zone-name">${formatZoneName(z.id)}</span>
-        <div class="zone-bar-wrap" aria-label="${z.density}% full">
-          <div class="zone-bar">
-            <div class="zone-bar-fill ${z.alertLevel}" style="width:${z.density}%" role="progressbar" aria-valuenow="${z.density}" aria-valuemin="0" aria-valuemax="100" aria-label="${formatZoneName(z.id)} crowd density ${z.density}%"></div>
+    .map((z) => {
+      const zoneName = formatZoneName(z.id);
+      return `
+        <div class="zone-row" role="listitem">
+          <span class="zone-name">${zoneName}</span>
+          <div class="zone-bar-wrap" aria-label="${z.density}% full">
+            <div class="zone-bar">
+              <div class="zone-bar-fill ${z.alertLevel}" 
+                   style="width:${z.density}%" 
+                   role="progressbar" 
+                   aria-valuenow="${z.density}" 
+                   aria-valuemin="0" 
+                   aria-valuemax="100" 
+                   aria-label="${zoneName} crowd density ${z.density}%"></div>
+            </div>
           </div>
-        </div>
-        <span class="zone-density">${z.density}%</span>
-        <span class="alert-badge ${z.alertLevel}">${z.alertLevel}</span>
-      </div>`
-    )
+          <span class="zone-density">${z.density}%</span>
+          <span class="alert-badge ${z.alertLevel}">${z.alertLevel}</span>
+        </div>`;
+    })
     .join('');
 
-  // Trigger critical alert for assertive screen-reader announcement
+  // Critical alerts for screen readers
   const criticalZones = zones.filter((z) => z.alertLevel === 'critical');
   const alertBar = $('critical-alert');
-  if (criticalZones.length > 0) {
-    alertBar.textContent = `⚠ Alert: ${criticalZones.map((z) => formatZoneName(z.id)).join(', ')} ${criticalZones.length === 1 ? 'is' : 'are'} at critical capacity. Please move to an alternate area.`;
-    alertBar.classList.remove('hidden');
-  } else {
-    alertBar.classList.add('hidden');
+  if (alertBar) {
+    if (criticalZones.length > 0) {
+      const names = criticalZones.map((z) => formatZoneName(z.id)).join(', ');
+      alertBar.textContent = `⚠ Alert: ${names} ${criticalZones.length === 1 ? 'is' : 'are'} at critical capacity. Please move to an alternate area.`;
+      alertBar.classList.remove('hidden');
+    } else {
+      alertBar.classList.add('hidden');
+    }
   }
 
-  // Update recommendation
   fetchRecommendation();
 }
 
 /* ───────────────────────────────────────────────────────────────
    Render: Gates
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Renders the list of stadium gates and their wait times.
+ * @param {Array<Object>} gates - List of gate objects.
+ */
 function renderGates(gates) {
   const container = $('gates-list');
-  const bestGate = gates.filter((g) => g.isOpen).sort((a, b) => a.waitTime - b.waitTime)[0];
+  if (!container) return;
+
+  const openGates = gates.filter((g) => g.isOpen);
+  const bestGate = openGates.sort((a, b) => a.waitTime - b.waitTime)[0];
 
   container.innerHTML = gates
     .sort((a, b) => a.waitTime - b.waitTime)
     .map((g) => {
       const isBest = g.gateId === bestGate?.gateId;
-      const waitColor = g.waitTime <= 2 ? 'color:var(--color-accent)' : g.waitTime <= 6 ? 'color:var(--color-warning)' : 'color:var(--color-danger)';
+      const waitColor = g.waitTime <= 2 
+        ? 'var(--color-accent)' 
+        : g.waitTime <= 6 
+          ? 'var(--color-warning)' 
+          : 'var(--color-danger)';
+      
+      const label = `${g.gateId.replace('-', ' ')} — ${g.waitTime} minute wait${isBest ? ' — recommended' : ''}${!g.isOpen ? ' — closed' : ''}`;
+
       return `
-        <div class="gate-card ${isBest ? 'best-gate' : ''} ${!g.isOpen ? 'gate-closed' : ''}" role="listitem" aria-label="${g.gateId.replace('-', ' ')} — ${g.waitTime} minute wait${isBest ? ' — recommended' : ''}${!g.isOpen ? ' — closed' : ''}">
+        <div class="gate-card ${isBest ? 'best-gate' : ''} ${!g.isOpen ? 'gate-closed' : ''}" 
+             role="listitem" 
+             aria-label="${label}">
           <span class="gate-icon" aria-hidden="true">${g.isOpen ? (isBest ? '✅' : '🚪') : '🔒'}</span>
           <div class="gate-info">
             <div class="gate-id">${g.gateId.replace('gate-', 'Gate ').toUpperCase()}</div>
             <div class="gate-queue">${g.queueLength} fans waiting${isBest ? ' — Best choice!' : ''}</div>
           </div>
           <div>
-            <div class="gate-wait" style="${waitColor}">${g.isOpen ? g.waitTime + 'm' : '—'}</div>
+            <div class="gate-wait" style="color:${waitColor}">${g.isOpen ? g.waitTime + 'm' : '—'}</div>
             <div class="gate-wait-label">wait time</div>
           </div>
         </div>`;
     })
     .join('');
 
-  const ts = new Date().toLocaleTimeString();
-  $('gates-updated').textContent = `Updated at ${ts}`;
+  $('gates-updated').textContent = `Updated at ${new Date().toLocaleTimeString()}`;
 }
 
-/* ───────────────────────────────────────────────────────────────
-   Stats
-─────────────────────────────────────────────────────────────── */
+/**
+ * Updates the summary statistics for the stadium.
+ * @param {Array<Object>} zones - List of zones.
+ * @param {Array<Object>} gates - List of gates.
+ */
 function updateStats(zones, gates) {
-  const totalFans = zones.reduce((s, z) => s + (z.count || 0), 0);
-  const avgDensity = Math.round(zones.reduce((s, z) => s + z.density, 0) / zones.length);
-  const bestWait = Math.min(...(gates || []).filter((g) => g.isOpen).map((g) => g.waitTime));
+  const totalFans = zones.reduce((sum, z) => sum + (z.count || 0), 0);
+  const avgDensity = zones.length > 0
+    ? Math.round(zones.reduce((sum, z) => sum + z.density, 0) / zones.length)
+    : 0;
+  
+  const openGates = (gates || []).filter((g) => g.isOpen);
+  const bestWait = openGates.length > 0 
+    ? Math.min(...openGates.map((g) => g.waitTime)) 
+    : Infinity;
+  
   const alertCount = zones.filter((z) => z.alertLevel !== 'normal').length;
 
   $('stat-total').textContent = totalFans.toLocaleString();
-  $('stat-density').textContent = avgDensity + '%';
-  $('stat-wait').textContent = isFinite(bestWait) ? bestWait + ' min' : '—';
+  $('stat-density').textContent = `${avgDensity}%`;
+  $('stat-wait').textContent = isFinite(bestWait) ? `${bestWait} min` : '—';
   $('stat-alerts').textContent = alertCount;
 
   animateBar('bar-total', Math.min(100, (totalFans / 43500) * 100));
@@ -322,26 +398,43 @@ function updateStats(zones, gates) {
   $('last-updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
 }
 
+/**
+ * Animates a progress bar to a specific percentage.
+ * @param {string} id - Element ID.
+ * @param {number} pct - Percentage to fill.
+ */
 function animateBar(id, pct) {
   const el = $(id);
-  if (el) el.style.width = pct + '%';
+  if (el) el.style.width = `${pct}%`;
 }
 
+/**
+ * Updates the live crowd status banner.
+ * @param {Array<Object>} zones - List of zones.
+ */
 function updateBanner(zones) {
+  const banner = $('banner-text');
+  if (!banner) return;
+
   const critical = zones.filter((z) => z.alertLevel === 'critical');
   const warning = zones.filter((z) => z.alertLevel === 'warning');
+
   if (critical.length > 0) {
-    $('banner-text').textContent = `⚠ ${critical.length} zone${critical.length > 1 ? 's' : ''} at critical capacity`;
+    banner.textContent = `⚠ ${critical.length} zone${critical.length > 1 ? 's' : ''} at critical capacity`;
   } else if (warning.length > 0) {
-    $('banner-text').textContent = `${warning.length} zone${warning.length > 1 ? 's' : ''} near capacity`;
+    banner.textContent = `${warning.length} zone${warning.length > 1 ? 's' : ''} near capacity`;
   } else {
-    $('banner-text').textContent = 'Stadium conditions are comfortable';
+    banner.textContent = 'Stadium conditions are comfortable';
   }
 }
 
 /* ───────────────────────────────────────────────────────────────
    Gate recommendation
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Fetches the latest gate recommendation from the API.
+ * @async
+ */
 async function fetchRecommendation() {
   try {
     const res = await fetch('/api/crowd/recommendation');
@@ -349,7 +442,10 @@ async function fetchRecommendation() {
     const rec = await res.json();
     state.recommendation = rec;
 
-    $('gate-recommendation').innerHTML = `
+    const container = $('gate-recommendation');
+    if (!container) return;
+
+    container.innerHTML = `
       <div class="rec-gate">
         <span style="font-size:1.5rem" aria-hidden="true">🚪</span>
         <div>
@@ -359,82 +455,108 @@ async function fetchRecommendation() {
         <span class="rec-badge">Best</span>
       </div>
       <p class="rec-gate-reason">${rec.reason}</p>`;
-  } catch {
-    $('gate-recommendation').textContent = 'Recommendation unavailable';
+  } catch (err) {
+    const container = $('gate-recommendation');
+    if (container) container.textContent = 'Recommendation unavailable';
   }
 }
 
 /* ───────────────────────────────────────────────────────────────
    Google Maps (lazy loaded when Map tab activated)
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Initializes the Google Map and its data layers.
+ * @async
+ */
 async function initMap() {
   if (state.mapsLoaded) return;
   const apiKey = state.firebaseConfig?.mapsApiKey;
+  const container = $('stadium-map');
+  
   if (!apiKey) {
-    $('stadium-map').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:0.875rem;">Google Maps API key not configured</div>`;
+    if (container) {
+      container.innerHTML = `<div class="map-error">Google Maps API key not configured</div>`;
+    }
     return;
   }
 
   try {
     const { Map } = await google.maps.importLibrary('maps');
-    const { Marker } = await google.maps.importLibrary('marker');
-    const { HeatmapLayer } = await google.maps.importLibrary('visualization');
+    const STADIUM_COORDS = { lat: 12.9784, lng: 77.5994 };
 
-    // M. Chinnaswamy Stadium, Bengaluru
-    const STADIUM = { lat: 12.9784, lng: 77.5994 };
-
-    state.map = new Map($('stadium-map'), {
-      center: STADIUM,
+    state.map = new Map(container, {
+      center: STADIUM_COORDS,
       zoom: 17,
-      mapId: 'SMART_STADIUM_MAP', // Required for advanced markers
+      mapId: 'SMART_STADIUM_MAP',
       mapTypeId: 'satellite',
       mapTypeControl: false,
       streetViewControl: false,
     });
 
-    // Gate markers
-    const gates = [
-      { id: 'gate-a', pos: { lat: 12.9790, lng: 77.5990 }, label: 'Gate A' },
-      { id: 'gate-b', pos: { lat: 12.9788, lng: 77.5999 }, label: 'Gate B' },
-      { id: 'gate-c', pos: { lat: 12.9780, lng: 77.5998 }, label: 'Gate C' },
-      { id: 'gate-d', pos: { lat: 12.9778, lng: 77.5990 }, label: 'Gate D' },
-    ];
-
-    gates.forEach((g) => {
-      const marker = new Marker({
-        position: g.pos,
-        map: state.map,
-        title: g.label,
-        label: { text: g.label.replace('Gate ', ''), color: '#fff', fontWeight: 'bold' },
-      });
-      state.markers.push(marker);
-    });
-
-    // Crowd heat map overlay
-    const heatmapData = buildHeatmapData(state.zones);
-    state.heatmap = new HeatmapLayer({
-      data: heatmapData,
-      map: state.map,
-      radius: 60,
-      gradient: [
-        'rgba(0, 212, 170, 0)',
-        'rgba(0, 212, 170, 0.6)',
-        'rgba(255, 183, 3, 0.7)',
-        'rgba(255, 77, 109, 0.9)',
-      ],
-    });
+    await setupMapMarkers();
+    await setupHeatmapLayer();
 
     // Map chip controls
-    $('btn-heatmap').addEventListener('click', () => toggleHeatmap());
-    $('btn-gates-overlay').addEventListener('click', () => toggleMarkersVisibility());
+    $('btn-heatmap')?.addEventListener('click', () => toggleHeatmap());
+    $('btn-gates-overlay')?.addEventListener('click', () => toggleMarkersVisibility());
+    $('get-directions-btn')?.addEventListener('click', () => getDirections());
 
-    // Directions
-    $('get-directions-btn').addEventListener('click', () => getDirections());
+    state.mapsLoaded = true;
   } catch (err) {
-    $('stadium-map').innerHTML = `<div style="padding:1rem;color:var(--text-secondary)">Map failed to load: ${err.message}</div>`;
+    if (container) {
+      container.innerHTML = `<div class="map-error">Map failed to load: ${err.message}</div>`;
+    }
   }
 }
 
+/**
+ * Sets up gate markers on the map.
+ * @async
+ */
+async function setupMapMarkers() {
+  const { Marker } = await google.maps.importLibrary('marker');
+  const GATES = [
+    { id: 'gate-a', pos: { lat: 12.9790, lng: 77.5990 }, label: 'Gate A' },
+    { id: 'gate-b', pos: { lat: 12.9788, lng: 77.5999 }, label: 'Gate B' },
+    { id: 'gate-c', pos: { lat: 12.9780, lng: 77.5998 }, label: 'Gate C' },
+    { id: 'gate-d', pos: { lat: 12.9778, lng: 77.5990 }, label: 'Gate D' },
+  ];
+
+  GATES.forEach((g) => {
+    const marker = new Marker({
+      position: g.pos,
+      map: state.map,
+      title: g.label,
+      label: { text: g.label.replace('Gate ', ''), color: '#fff', fontWeight: 'bold' },
+    });
+    state.markers.push(marker);
+  });
+}
+
+/**
+ * Sets up the crowd density heatmap layer.
+ * @async
+ */
+async function setupHeatmapLayer() {
+  const { HeatmapLayer } = await google.maps.importLibrary('visualization');
+  state.heatmap = new HeatmapLayer({
+    data: buildHeatmapData(state.zones),
+    map: state.map,
+    radius: 60,
+    gradient: [
+      'rgba(0, 212, 170, 0)',
+      'rgba(0, 212, 170, 0.6)',
+      'rgba(255, 183, 3, 0.7)',
+      'rgba(255, 77, 109, 0.9)',
+    ],
+  });
+}
+
+/**
+ * Builds the data array for the Google Maps Heatmap layer.
+ * @param {Array<Object>} zones - List of zones.
+ * @returns {Array<google.maps.visualization.WeightedLocation>}
+ */
 function buildHeatmapData(zones) {
   const ZONE_COORDS = {
     'north-stand': { lat: 12.9790, lng: 77.5994 },
@@ -444,58 +566,97 @@ function buildHeatmapData(zones) {
   };
   return zones
     .filter((z) => ZONE_COORDS[z.id])
-    .map((z) => ({ location: new google.maps.LatLng(ZONE_COORDS[z.id]), weight: z.density / 100 }));
+    .map((z) => ({ 
+      location: new google.maps.LatLng(ZONE_COORDS[z.id]), 
+      weight: z.density / 100 
+    }));
 }
 
+/**
+ * Updates the heatmap data layer.
+ * @param {Array<Object>} zones - List of zones.
+ */
 function updateHeatmap(zones) {
   if (!state.heatmap) return;
   state.heatmap.setData(buildHeatmapData(zones));
 }
 
+/**
+ * Toggles the visibility of the crowd heatmap.
+ */
 function toggleHeatmap() {
   if (!state.heatmap) return;
-  const visible = state.heatmap.getMap();
-  state.heatmap.setMap(visible ? null : state.map);
+  const isVisible = !!state.heatmap.getMap();
+  state.heatmap.setMap(isVisible ? null : state.map);
+  
   const btn = $('btn-heatmap');
-  btn.classList.toggle('active');
-  btn.setAttribute('aria-pressed', String(!visible));
+  if (btn) {
+    btn.classList.toggle('active', !isVisible);
+    btn.setAttribute('aria-pressed', String(!isVisible));
+  }
 }
 
+/**
+ * Toggles the visibility of gate markers on the map.
+ */
 function toggleMarkersVisibility() {
   const btn = $('btn-gates-overlay');
-  const isVisible = btn.classList.toggle('active');
-  btn.setAttribute('aria-pressed', String(isVisible));
-  state.markers.forEach((m) => m.setVisible(isVisible));
+  if (!btn) return;
+  
+  const isActive = btn.classList.toggle('active');
+  btn.setAttribute('aria-pressed', String(isActive));
+  state.markers.forEach((m) => m.setVisible(isActive));
 }
 
+/**
+ * Calculates and displays walking directions to the recommended gate.
+ * @async
+ */
 async function getDirections() {
-  const origin = $('origin-input').value.trim();
-  if (!origin) { showToast('Please enter your current location'); return; }
-  if (!state.map) { showToast('Map is not loaded yet'); return; }
+  const origin = $('origin-input')?.value.trim();
+  const container = $('directions-result');
+  
+  if (!origin) {
+    showToast('Please enter your current location');
+    return;
+  }
+  if (!state.map) {
+    showToast('Map is not loaded yet');
+    return;
+  }
 
   const rec = state.recommendation;
-  const dest = rec ? `Gate ${rec.gateId.replace('gate-', '')} Chinnaswamy Stadium Bengaluru` : 'Chinnaswamy Stadium Gate';
-
-  const directionsService = new google.maps.DirectionsService();
-  const directionsRenderer = new google.maps.DirectionsRenderer({ map: state.map });
+  const dest = rec 
+    ? `Gate ${rec.gateId.replace('gate-', '')} Chinnaswamy Stadium Bengaluru` 
+    : 'Chinnaswamy Stadium Gate';
 
   try {
+    const directionsService = new google.maps.DirectionsService();
+    const directionsRenderer = new google.maps.DirectionsRenderer({ map: state.map });
+
     const result = await directionsService.route({
       origin: `${origin}, Bangalore`,
       destination: dest,
       travelMode: google.maps.TravelMode.WALKING,
     });
+
     directionsRenderer.setDirections(result);
     const leg = result.routes[0].legs[0];
-    $('directions-result').innerHTML = `<strong>🚶 ${leg.duration.text} walk</strong> (${leg.distance.text}) to your recommended gate.`;
-  } catch {
-    $('directions-result').textContent = 'Could not calculate directions. Ensure your location is accurate.';
+    
+    if (container) {
+      container.innerHTML = `<strong>🚶 ${leg.duration.text} walk</strong> (${leg.distance.text}) to your recommended gate.`;
+    }
+  } catch (err) {
+    if (container) {
+      container.textContent = 'Could not calculate directions. Ensure your location is accurate.';
+    }
   }
 }
 
 /* ───────────────────────────────────────────────────────────────
    Tab navigation (full keyboard support)
 ─────────────────────────────────────────────────────────────── */
+/** Tab configuration */
 const TABS = [
   { btn: 'tab-home',  panel: 'panel-home' },
   { btn: 'tab-map',   panel: 'panel-map' },
@@ -503,9 +664,13 @@ const TABS = [
   { btn: 'tab-ai',    panel: 'panel-ai' },
 ];
 
+/**
+ * Sets up tab navigation and accessibility.
+ */
 function setupTabs() {
   TABS.forEach(({ btn, panel }, idx) => {
     const btnEl = $(btn);
+    if (!btnEl) return;
 
     btnEl.addEventListener('click', () => activateTab(idx));
 
@@ -517,22 +682,34 @@ function setupTabs() {
       else if (e.key === 'Home') next = 0;
       else if (e.key === 'End') next = TABS.length - 1;
       else return;
+
       e.preventDefault();
       activateTab(next);
-      $(TABS[next].btn).focus();
+      $(TABS[next].btn)?.focus();
     });
   });
 }
 
+/**
+ * Activates a specific tab.
+ * @param {number} activeIdx - Index of the tab to activate.
+ */
 function activateTab(activeIdx) {
   TABS.forEach(({ btn, panel }, idx) => {
     const isActive = idx === activeIdx;
-    $(btn).classList.toggle('active', isActive);
-    $(btn).setAttribute('aria-selected', String(isActive));
-    $(btn).tabIndex = isActive ? 0 : -1;
+    const btnEl = $(btn);
     const panelEl = $(panel);
-    panelEl.hidden = !isActive;
-    if (isActive) panelEl.removeAttribute('hidden');
+
+    if (btnEl) {
+      btnEl.classList.toggle('active', isActive);
+      btnEl.setAttribute('aria-selected', String(isActive));
+      btnEl.tabIndex = isActive ? 0 : -1;
+    }
+
+    if (panelEl) {
+      panelEl.hidden = !isActive;
+      if (isActive) panelEl.removeAttribute('hidden');
+    }
   });
 
   // Lazy-load Google Maps only when map tab is opened
@@ -542,8 +719,13 @@ function activateTab(activeIdx) {
 /* ───────────────────────────────────────────────────────────────
    High-contrast mode
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Sets up the high-contrast mode toggle and restores user matching preference.
+ */
 function setupContrastToggle() {
   const btn = $('contrast-toggle');
+  if (!btn) return;
+
   btn.addEventListener('click', () => {
     const isHC = document.body.dataset.theme === 'high-contrast';
     document.body.dataset.theme = isHC ? 'dark' : 'high-contrast';
@@ -562,12 +744,16 @@ function setupContrastToggle() {
 /* ───────────────────────────────────────────────────────────────
    AI Chat — Gemini streaming
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Sets up the AI chat form submission handler.
+ */
 function setupChatForm() {
-  $('chat-form').addEventListener('submit', async (e) => {
+  $('chat-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = $('chat-input');
-    const query = input.value.trim();
+    const query = input?.value.trim();
     if (!query) return;
+    
     input.value = '';
     
     // Debounce preventing accidental double-submits
@@ -577,20 +763,31 @@ function setupChatForm() {
   });
 }
 
+/**
+ * Sets up quick prompt chip buttons.
+ */
 function setupQuickPrompts() {
   document.querySelectorAll('.quick-prompt').forEach((btn) => {
-    btn.addEventListener('click', () => sendChatMessage(btn.dataset.prompt));
+    btn.addEventListener('click', () => {
+      const prompt = btn.getAttribute('data-prompt');
+      if (prompt) sendChatMessage(prompt);
+    });
   });
 }
 
+/**
+ * Sends a message to the AI assistant and handles the streamed response.
+ * @async
+ * @param {string} query - The user's question.
+ */
 async function sendChatMessage(query) {
   appendChatMessage('user', query);
   const typingEl = showTypingIndicator();
   const sendBtn = $('chat-send');
-  sendBtn.disabled = true;
+  
+  if (sendBtn) sendBtn.disabled = true;
   state.isAITyping = true;
 
-  // Streaming via SSE
   try {
     const response = await fetch('/api/gemini/recommend', {
       method: 'POST',
@@ -598,7 +795,9 @@ async function sendChatMessage(query) {
       body: JSON.stringify({ query }),
     });
 
-    typingEl.remove();
+    if (!response.ok) throw new Error('AI response failed');
+
+    typingEl?.remove();
     const bubbleEl = appendChatMessage('assistant', '');
 
     const reader = response.body.getReader();
@@ -608,6 +807,7 @@ async function sendChatMessage(query) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop();
@@ -616,27 +816,39 @@ async function sendChatMessage(query) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6);
         if (payload === '[DONE]') break;
+        
         try {
-          const { chunk } = JSON.parse(payload);
-          if (chunk) {
+          const { chunk, error } = JSON.parse(payload);
+          if (error) throw new Error(error);
+          if (chunk && bubbleEl) {
             bubbleEl.textContent += chunk;
             scrollChatToBottom();
           }
-        } catch {}
+        } catch (e) {
+          /* Handle parse errors */
+        }
       }
     }
   } catch (err) {
-    typingEl.remove();
+    typingEl?.remove();
     appendChatMessage('assistant', 'Sorry, I could not get a response right now. Please try again.');
   } finally {
     state.isAITyping = false;
-    sendBtn.disabled = false;
-    $('chat-input').focus();
+    if (sendBtn) sendBtn.disabled = false;
+    $('chat-input')?.focus();
   }
 }
 
+/**
+ * Appends a message bubble to the chat container.
+ * @param {'user'|'assistant'} role - The sender's role.
+ * @param {string} text - The message text.
+ * @returns {HTMLElement} The bubble element.
+ */
 function appendChatMessage(role, text) {
   const container = $('chat-messages');
+  if (!container) return null;
+
   const msg = document.createElement('div');
   msg.className = `chat-message ${role}`;
   msg.setAttribute('role', 'article');
@@ -645,34 +857,61 @@ function appendChatMessage(role, text) {
   msg.innerHTML = `
     <div class="chat-avatar" aria-hidden="true">${role === 'user' ? '👤' : '✨'}</div>
     <div class="chat-bubble">${escapeHtml(text)}</div>`;
+  
   container.appendChild(msg);
   scrollChatToBottom();
   return msg.querySelector('.chat-bubble');
 }
 
+/**
+ * Shows the typing indicator in the chat.
+ * @returns {HTMLElement} The typing indicator element.
+ */
 function showTypingIndicator() {
   const container = $('chat-messages');
+  if (!container) return null;
+
   const el = document.createElement('div');
   el.className = 'chat-message assistant';
   el.setAttribute('aria-label', 'AI is typing');
-  el.innerHTML = `<div class="chat-avatar" aria-hidden="true">✨</div><div class="chat-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+  el.innerHTML = `
+    <div class="chat-avatar" aria-hidden="true">✨</div>
+    <div class="chat-bubble">
+      <div class="typing-dots"><span></span><span></span><span></span></div>
+    </div>`;
+  
   container.appendChild(el);
   scrollChatToBottom();
   return el;
 }
 
+/**
+ * Scrolls the chat container to the bottom.
+ */
 function scrollChatToBottom() {
-  const c = $('chat-messages');
-  c.scrollTop = c.scrollHeight;
+  const container = $('chat-messages');
+  if (container) {
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────────
    Utilities
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Formats a kebab-case zone ID into a Title Case string.
+ * @param {string} id - The zone ID.
+ * @returns {string}
+ */
 function formatZoneName(id) {
   return id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Simple HTML escaping to prevent XSS.
+ * @param {string} str - The raw string.
+ * @returns {string}
+ */
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -682,15 +921,22 @@ function escapeHtml(str) {
 }
 
 let toastTimer;
+/**
+ * Displays a temporary toast notification.
+ * @param {string} msg - The message to display.
+ * @param {number} [duration=3000] - Duration in milliseconds.
+ */
 function showToast(msg, duration = 3000) {
   const t = $('toast');
+  if (!t) return;
+  
   t.textContent = msg;
   t.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add('hidden'), duration);
 }
 
-/* ───────────────────────────────────────────────────────────────
-   Boot
-─────────────────────────────────────────────────────────────── */
+/**
+ * Boot the application when the DOM is ready.
+ */
 document.addEventListener('DOMContentLoaded', init);

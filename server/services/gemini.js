@@ -42,15 +42,16 @@ function getModel() {
 }
 
 /**
- * Strip HTML tags, trim, and truncate user input.
- * @param {string|null|undefined} input
- * @returns {string}
+ * Sanitize user input by stripping HTML, removing potential injection characters,
+ * and enforcing length limits.
+ * @param {string|null|undefined} input - The raw user input.
+ * @returns {string} The cleaned input.
  */
 function sanitizeUserQuery(input) {
-  if (input === null || input === undefined) return '';
-  return String(input)
-    .replace(/<[^>]*>/g, '')           // strip HTML
-    .replace(/[<>'"]/g, '')            // strip potential injection chars
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/<[^>]*>/g, '') // Strip HTML tags
+    .replace(/[<>'";\\]/g, '') // Remove potential command/injection characters
     .trim()
     .slice(0, MAX_QUERY_LENGTH);
 }
@@ -113,7 +114,9 @@ async function generateRecommendation(rawQuery, onChunk) {
  * Falls back to a pre-written announcement if Gemini fails.
  * @param {string} zoneId
  * @param {number} density
- * @returns {Promise<string>}
+ * @param {string} zoneId - The ID of the zone.
+ * @param {number} density - The current density percentage.
+ * @returns {Promise<string>} The generated announcement.
  */
 async function generateAnnouncement(zoneId, density) {
   try {

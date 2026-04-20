@@ -38,6 +38,10 @@ module.exports = {
     API_MAX_REQUESTS: 200,
     JSON_BODY_LIMIT: '10kb',
     MAX_QUERY_LENGTH: 2000,
+    GEMINI_WINDOW_MS: 60 * 1000,
+    GEMINI_MAX_REQUESTS: 20,
+    AUTH_WINDOW_MS: 15 * 60 * 1000,
+    AUTH_MAX_REQUESTS: 10,
   },
 
   // Cache Durations (seconds)

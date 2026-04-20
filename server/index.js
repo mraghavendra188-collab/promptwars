@@ -31,20 +31,31 @@ const wss = new WebSocket.Server({ server });
 
 // ── WebSocket broadcast ────────────────────────────────────────────────────
 const clients = new Set();
+
 wss.on('connection', (ws) => {
   clients.add(ws);
   ws.on('close', () => clients.delete(ws));
-  ws.on('error', (err) => logger.warn('WS error', { error: err.message }));
+  ws.on('error', (err) => logger.warn('WebSocket client error', { error: err.message }));
 });
 
+/**
+ * Broadcasts data to all connected WebSocket clients.
+ * @param {Object} data - The payload to broadcast.
+ */
 function broadcast(data) {
   const payload = JSON.stringify(data);
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch {}
+      try {
+        client.send(payload);
+      } catch (err) {
+        /* Silently handle send failures */
+      }
     }
   });
 }
+
+// Make broadcast available to other modules via app.locals
 app.locals.broadcast = broadcast;
 
 // ── Efficiency: Compression MUST be first ──────────────────────────────────
@@ -96,6 +107,7 @@ app.use(
       },
     },
     crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
 

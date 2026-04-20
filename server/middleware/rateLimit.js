@@ -6,6 +6,7 @@ const { LIMITS } = require('../constants');
 
 /**
  * General API rate limiter — 100 requests per 15 minutes per IP.
+ * @returns {Function} Express rate limit middleware.
  */
 function createApiLimiter() {
   return rateLimit({
@@ -19,11 +20,12 @@ function createApiLimiter() {
 
 /**
  * Strict limiter for Gemini endpoints — 20 requests per minute per IP.
+ * @returns {Function} Express rate limit middleware.
  */
 function createGeminiLimiter() {
   return rateLimit({
-    windowMs: 60 * 1000,
-    max: 20,
+    windowMs: LIMITS.GEMINI_WINDOW_MS,
+    max: LIMITS.GEMINI_MAX_REQUESTS,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Gemini rate limit reached. Please wait a moment.' },
@@ -32,11 +34,12 @@ function createGeminiLimiter() {
 
 /**
  * Auth endpoints — 10 requests per 15 minutes to prevent brute force.
+ * @returns {Function} Express rate limit middleware.
  */
 function createAuthLimiter() {
   return rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
+    windowMs: LIMITS.AUTH_WINDOW_MS,
+    max: LIMITS.AUTH_MAX_REQUESTS,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many auth attempts. Please try again later.' },
