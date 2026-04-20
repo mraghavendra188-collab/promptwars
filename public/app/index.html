@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0f1e" />
+  <meta name="description" content="SmartStadium AI — Real-time crowd management, gate recommendations, and AI-powered navigation for IPL 2026." />
+  <title>SmartStadium AI — Fan Experience</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json" />
+
+  <!-- Efficiency: Resource hints -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://maps.googleapis.com" />
+  <link rel="preconnect" href="https://www.gstatic.com" />
+  <link rel="preconnect" href="https://www.googleapis.com" />
+  <link rel="dns-prefetch" href="https://maps.googleapis.com" />
+  <link rel="dns-prefetch" href="https://www.gstatic.com" />
+  <link rel="dns-prefetch" href="https://*.firebaseio.com" />
+
+  <!-- Critical assets preload -->
+  <link rel="preload" href="style.css" as="style" />
+  <link rel="preload" href="app.js" as="script" />
+
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Main styles -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Preload Google Maps (loaded lazily via JS) -->
+
+  <!-- Accessibility: Skip link is FIRST focusable element -->
+  <style>
+    #skip-to-main {
+      position: absolute;
+      top: -100%;
+      left: 1rem;
+      background: #4f6ef7;
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0 0 8px 8px;
+      font-weight: 600;
+      z-index: 9999;
+      text-decoration: none;
+      transition: top 0.2s;
+    }
+    #skip-to-main:focus { top: 0; }
+  </style>
+</head>
+<body data-theme="dark">
+
+  <!-- Skip navigation link (WCAG 2.4.1) -->
+  <a href="#main-content" id="skip-to-main">Skip to main content</a>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!--  Header                                               -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <header class="app-header" role="banner">
+    <div class="header-inner">
+      <div class="logo" aria-label="SmartStadium AI">
+        <span class="logo-icon" aria-hidden="true">🏟️</span>
+        <span class="logo-text">SmartStadium <span class="logo-accent">AI</span></span>
+      </div>
+
+      <div class="header-actions">
+        <!-- High-contrast toggle -->
+        <button
+          id="contrast-toggle"
+          class="icon-btn"
+          aria-label="Toggle high-contrast mode"
+          aria-pressed="false"
+          title="High contrast mode"
+        >
+          <span aria-hidden="true">◑</span>
+        </button>
+
+        <!-- Auth button -->
+        <button
+          id="auth-btn"
+          class="btn btn-outline"
+          aria-label="Sign in with Google"
+          aria-haspopup="true"
+        >
+          <span id="auth-btn-label">Sign In</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Live crowd status banner -->
+    <div
+      id="crowd-banner"
+      class="crowd-banner"
+      role="status"
+      aria-live="polite"
+      aria-label="Stadium crowd status"
+    >
+      <span class="banner-dot" id="live-dot" aria-hidden="true"></span>
+      <span id="banner-text">Connecting to live data…</span>
+    </div>
+  </header>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!--  Tab navigation                                       -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <nav class="tab-nav" role="tablist" aria-label="App sections">
+    <button id="tab-home"  class="tab active" role="tab" aria-selected="true"  aria-controls="panel-home"  tabindex="0">
+      <span aria-hidden="true">🏠</span> Home
+    </button>
+    <button id="tab-map"   class="tab" role="tab" aria-selected="false" aria-controls="panel-map"   tabindex="-1">
+      <span aria-hidden="true">🗺️</span> Map
+    </button>
+    <button id="tab-gates" class="tab" role="tab" aria-selected="false" aria-controls="panel-gates" tabindex="-1">
+      <span aria-hidden="true">🚪</span> Gates
+    </button>
+    <button id="tab-ai"    class="tab" role="tab" aria-selected="false" aria-controls="panel-ai"    tabindex="-1">
+      <span aria-hidden="true">✨</span> AI
+    </button>
+  </nav>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!--  Main content                                         -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <main id="main-content" role="main">
+
+    <!-- ── HOME PANEL ─────────────────────────────────────── -->
+    <section
+      id="panel-home"
+      class="panel active"
+      role="tabpanel"
+      aria-labelledby="tab-home"
+      tabindex="0"
+    >
+      <!-- Critical alert: aria-live assertive for screen readers -->
+      <div
+        id="critical-alert"
+        class="alert-bar hidden"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+      ></div>
+
+      <!-- Crowd overview grid -->
+      <div class="section-header">
+        <h1 class="section-title">Stadium Overview</h1>
+        <p class="section-subtitle" id="last-updated" aria-live="polite">Loading…</p>
+      </div>
+
+      <!-- Key stats -->
+      <div class="stats-grid" role="list" aria-label="Stadium statistics">
+        <div class="stat-card" role="listitem">
+          <div class="stat-icon" aria-hidden="true">👥</div>
+          <div class="stat-value" id="stat-total">—</div>
+          <div class="stat-label">Total Fans</div>
+          <div class="stat-bar"><div class="stat-bar-fill" id="bar-total" style="width:0%"></div></div>
+        </div>
+        <div class="stat-card" role="listitem">
+          <div class="stat-icon" aria-hidden="true">🌡️</div>
+          <div class="stat-value" id="stat-density">—</div>
+          <div class="stat-label">Avg Density</div>
+          <div class="stat-bar"><div class="stat-bar-fill" id="bar-density" style="width:0%"></div></div>
+        </div>
+        <div class="stat-card" role="listitem">
+          <div class="stat-icon" aria-hidden="true">⏱️</div>
+          <div class="stat-value" id="stat-wait">—</div>
+          <div class="stat-label">Best Wait</div>
+        </div>
+        <div class="stat-card" role="listitem">
+          <div class="stat-icon" aria-hidden="true">🚨</div>
+          <div class="stat-value" id="stat-alerts">0</div>
+          <div class="stat-label">Active Alerts</div>
+        </div>
+      </div>
+
+      <!-- Zone density list -->
+      <div class="card">
+        <h2 class="card-title">Zone Status</h2>
+        <div id="zone-list" role="list" aria-label="Stadium zone status">
+          <!-- Zones rendered by JS -->
+          <div class="skeleton-list" aria-hidden="true">
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Best gate recommendation card -->
+      <div class="card recommendation-card" aria-labelledby="rec-heading">
+        <h2 class="card-title" id="rec-heading">🎯 Best Gate Right Now</h2>
+        <div id="gate-recommendation" aria-live="polite" aria-label="Gate recommendation">
+          <div class="skeleton-row" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── MAP PANEL ──────────────────────────────────────── -->
+    <section
+      id="panel-map"
+      class="panel"
+      role="tabpanel"
+      aria-labelledby="tab-map"
+      tabindex="0"
+      hidden
+    >
+      <div class="section-header">
+        <h2 class="section-title">Stadium Map</h2>
+        <p class="section-subtitle">Live crowd heat map via Google Maps</p>
+      </div>
+
+      <div class="map-controls" role="group" aria-label="Map display options">
+        <button id="btn-heatmap" class="chip active" aria-pressed="true">Heat Map</button>
+        <button id="btn-gates-overlay" class="chip" aria-pressed="false">Gates</button>
+        <button id="btn-food-overlay" class="chip" aria-pressed="false">Food Stalls</button>
+        <button id="btn-parking-overlay" class="chip" aria-pressed="false">Parking</button>
+      </div>
+
+      <!-- Google Maps container -->
+      <div
+        id="stadium-map"
+        class="map-container"
+        role="img"
+        aria-label="Interactive stadium map showing crowd density heat map and facility markers"
+      ></div>
+
+      <!-- Directions panel -->
+      <div class="card" id="directions-panel" aria-labelledby="directions-heading">
+        <h2 class="card-title" id="directions-heading">Navigate to Gate</h2>
+        <div class="input-group">
+          <label for="origin-input" class="input-label">Your current location</label>
+          <input
+            id="origin-input"
+            type="text"
+            class="input"
+            placeholder="e.g. Section 23, Gate A area"
+            aria-describedby="origin-help"
+          />
+          <span id="origin-help" class="input-help">Enter your current section or gate area</span>
+        </div>
+        <button id="get-directions-btn" class="btn btn-primary mt-2" aria-label="Get walking directions to recommended gate">
+          Get Directions
+        </button>
+        <div id="directions-result" aria-live="polite" aria-label="Directions result"></div>
+      </div>
+    </section>
+
+    <!-- ── GATES PANEL ────────────────────────────────────── -->
+    <section
+      id="panel-gates"
+      class="panel"
+      role="tabpanel"
+      aria-labelledby="tab-gates"
+      tabindex="0"
+      hidden
+    >
+      <div class="section-header">
+        <h2 class="section-title">Gate Wait Times</h2>
+        <p class="section-subtitle" aria-live="polite" id="gates-updated">Live data</p>
+      </div>
+
+      <div id="gates-list" role="list" aria-label="Gate wait time list">
+        <!-- Rendered by JS -->
+        <div class="skeleton-list" aria-hidden="true">
+          <div class="skeleton-row" style="height:80px"></div>
+          <div class="skeleton-row" style="height:80px"></div>
+          <div class="skeleton-row" style="height:80px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── AI PANEL ───────────────────────────────────────── -->
+    <section
+      id="panel-ai"
+      class="panel"
+      role="tabpanel"
+      aria-labelledby="tab-ai"
+      tabindex="0"
+      hidden
+    >
+      <div class="section-header">
+        <h2 class="section-title">AI Assistant</h2>
+        <p class="section-subtitle">Powered by Google Gemini</p>
+      </div>
+
+      <!-- Chat messages -->
+      <div
+        id="chat-messages"
+        class="chat-container"
+        role="log"
+        aria-live="polite"
+        aria-label="AI conversation"
+        aria-relevant="additions"
+      >
+        <div class="chat-message assistant" role="article" aria-label="AI message">
+          <div class="chat-avatar" aria-hidden="true">✨</div>
+          <div class="chat-bubble">
+            Hi! I'm your SmartStadium AI assistant powered by Gemini. Ask me anything!<br>
+            Try: <em>"Which gate has the shortest queue?"</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick prompts -->
+      <div class="quick-prompts" role="group" aria-label="Quick question suggestions">
+        <button class="chip quick-prompt" data-prompt="Which gate has the shortest queue right now?">Shortest queue?</button>
+        <button class="chip quick-prompt" data-prompt="Where is the nearest food stall with short wait times?">Nearest food?</button>
+        <button class="chip quick-prompt" data-prompt="What areas of the stadium are least crowded?">Least crowded?</button>
+        <button class="chip quick-prompt" data-prompt="Where is the nearest restroom?">Restrooms?</button>
+      </div>
+
+      <!-- Input form -->
+      <form class="chat-form" id="chat-form" aria-label="Ask the AI assistant">
+        <label for="chat-input" class="sr-only">Ask a question about the stadium</label>
+        <input
+          id="chat-input"
+          type="text"
+          class="chat-input"
+          placeholder="Ask about gates, food, or crowd…"
+          aria-label="Type your question"
+          aria-describedby="chat-hint"
+          autocomplete="off"
+          maxlength="500"
+        />
+        <span id="chat-hint" class="sr-only">Press Enter or click Send to get an AI recommendation</span>
+        <button type="submit" id="chat-send" class="btn btn-primary" aria-label="Send message">
+          <span aria-hidden="true">➤</span>
+        </button>
+      </form>
+    </section>
+
+  </main>
+
+  <!-- ── SOS Speed Dial ────────────────────────────── -->
+  <div class="sos-container">
+    <div class="sos-options" id="sos-options">
+      <button class="sos-option-btn" data-type="seat" aria-label="Report Seat Issue">
+        <span class="sos-label">Seat Issue</span>
+        <span class="sos-icon-small">💺</span>
+      </button>
+      <button class="sos-option-btn" data-type="help" aria-label="Request General Help">
+        <span class="sos-label">General Help</span>
+        <span class="sos-icon-small">🙋</span>
+      </button>
+      <button class="sos-option-btn emergency-opt" data-type="emergency" aria-label="Declare Emergency">
+        <span class="sos-label">Emergency</span>
+        <span class="sos-icon-small">🚨</span>
+      </button>
+    </div>
+    <button id="sos-btn" class="sos-bubble" aria-label="Emergency SOS Options" aria-haspopup="menu" aria-expanded="false">
+      <span aria-hidden="true" class="sos-icon">🚨</span>
+      <span class="sos-text">SOS</span>
+    </button>
+  </div>
+
+  <!-- ── Notification toast ─────────────────────────────────── -->
+  <div
+    id="toast"
+    class="toast hidden"
+    role="alert"
+    aria-live="assertive"
+    aria-atomic="true"
+  ></div>
+
+  <script type="module">
+    // CDN endpoints
+    const CDN_APP = 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    const CDN_DB  = 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+    const CDN_AUTH= 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+
+    // Local fallbacks
+    const LOCAL_APP  = '../lib/firebase-app.js';
+    const LOCAL_DB   = '../lib/firebase-firestore.js';
+    const LOCAL_AUTH = '../lib/firebase-auth.js';
+
+    async function loadModule(cdn, local) {
+      try {
+        return await import(cdn);
+      } catch (err) {
+        console.warn(`Failed to load ${cdn}, falling back to ${local}`);
+        return await import(local);
+      }
+    }
+
+    async function init() {
+      try {
+        const [appMod, dbMod, authMod] = await Promise.all([
+          loadModule(CDN_APP, LOCAL_APP),
+          loadModule(CDN_DB, LOCAL_DB),
+          loadModule(CDN_AUTH, LOCAL_AUTH)
+        ]);
+
+        window.__firebaseModules = { 
+          ...appMod, ...dbMod, ...authMod
+        };
+        // Re-trigger main app init if it was waiting
+        if (window.__onFirebaseLoaded) window.__onFirebaseLoaded();
+      } catch (err) {
+        console.error('Critical: Failed to load Firebase modules from both CDN and Local storage.', err);
+      }
+    }
+    init();
+  </script>
+
+  <!-- Main app script -->
+  <script defer src="app.js"></script>
+
+  <!-- Google Maps lazy loader (deferred, loads only when map tab activated) -->
+  <script>
+    window.__loadGoogleMaps = function(apiKey) {
+      if (window.__mapsLoaded) return Promise.resolve();
+      window.__mapsLoaded = true;
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=visualization,places&callback=__onMapsReady`;
+        s.async = true;
+        s.onerror = reject;
+        window.__onMapsReady = resolve;
+        document.head.appendChild(s);
+      });
+    };
+  </script>
+
+</body>
+</html>

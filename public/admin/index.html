@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SmartStadium AI Admin Dashboard — real-time crowd management and coordination." />
+  <title>SmartStadium AI — Admin Dashboard</title>
+  
+  <!-- Efficiency: Resource hints -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="dns-prefetch" href="https://www.gstatic.com" />
+  
+  <!-- Critical assets preload -->
+  <link rel="preload" href="style.css" as="style" />
+  <link rel="preload" href="dashboard.js" as="script" />
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<div class="app-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" role="navigation" aria-label="Admin navigation">
+    <div class="sidebar-logo">
+      <span aria-hidden="true">🏟️</span>
+      <div>
+        <div class="logo-name">SmartStadium</div>
+        <div class="logo-role">Admin Dashboard</div>
+      </div>
+    </div>
+
+    <nav>
+      <ul class="nav-list" role="list">
+        <li><button class="nav-item active" data-panel="overview" aria-current="page">📊 Overview</button></li>
+        <li><button class="nav-item" data-panel="zones">🗺 Zones</button></li>
+        <li><button class="nav-item" data-panel="gates">🚪 Gates</button></li>
+        <li><button class="nav-item" data-panel="ai">✨ AI Control</button></li>
+        <li><button class="nav-item" data-panel="analytics">📈 Analytics</button></li>
+      </ul>
+    </nav>
+
+    <div class="sidebar-status">
+      <div class="status-dot" id="ws-status-dot" aria-hidden="true"></div>
+      <span id="ws-status-text" aria-live="polite">Connecting…</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main id="main-content" class="main-content" role="main">
+
+    <!-- Header -->
+    <header class="top-bar" role="banner">
+      <div>
+        <h1 class="page-title" id="panel-title">Overview</h1>
+        <p class="page-subtitle" id="panel-subtitle" aria-live="polite">Live stadium data</p>
+      </div>
+      <div class="top-bar-actions">
+        <button id="announce-btn" class="btn btn-accent" aria-label="Generate AI PA announcement">
+          📢 Generate Announcement
+        </button>
+        <button id="refresh-btn" class="btn btn-outline" aria-label="Refresh all data">↺ Refresh</button>
+      </div>
+    </header>
+
+    <!-- Alert strip -->
+    <div id="admin-alert" class="admin-alert hidden" role="alert" aria-live="assertive" aria-atomic="true"></div>
+
+    <!-- Overview Panel -->
+    <section id="panel-overview" class="panel active" aria-label="Stadium overview">
+      <div class="kpi-grid" role="list">
+        <article class="kpi-card" role="listitem" aria-label="Total attendance">
+          <div class="kpi-icon" aria-hidden="true">👥</div>
+          <div class="kpi-value" id="kpi-total">—</div>
+          <div class="kpi-label">Total Attendance</div>
+          <div class="kpi-change" id="kpi-total-pct"></div>
+        </article>
+        <article class="kpi-card" role="listitem" aria-label="Overall density">
+          <div class="kpi-icon" aria-hidden="true">🌡️</div>
+          <div class="kpi-value" id="kpi-density">—</div>
+          <div class="kpi-label">Avg Density</div>
+        </article>
+        <article class="kpi-card alert-card" role="listitem" aria-label="Active alerts">
+          <div class="kpi-icon" aria-hidden="true">⚠️</div>
+          <div class="kpi-value" id="kpi-alerts">0</div>
+          <div class="kpi-label">Active Alerts</div>
+        </article>
+        <article class="kpi-card" role="listitem" aria-label="Best gate wait time">
+          <div class="kpi-icon" aria-hidden="true">⏱️</div>
+          <div class="kpi-value" id="kpi-wait">—</div>
+          <div class="kpi-label">Best Gate Wait</div>
+        </article>
+      </div>
+
+      <div class="grid-2">
+        <!-- Zone table -->
+        <div class="card">
+          <h2 class="card-title">Zone Status</h2>
+          <table class="data-table" role="table" aria-label="Zone density table">
+            <thead>
+              <tr>
+                <th scope="col">Zone</th>
+                <th scope="col">Count</th>
+                <th scope="col">Density</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="zone-table" aria-live="polite"></tbody>
+          </table>
+        </div>
+
+        <!-- Gate table -->
+        <div class="card">
+          <h2 class="card-title">Gate Wait Times</h2>
+          <table class="data-table" role="table" aria-label="Gate wait times table">
+            <thead>
+              <tr>
+                <th scope="col">Gate</th>
+                <th scope="col">Queue</th>
+                <th scope="col">Wait</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="gate-table" aria-live="polite"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Panel -->
+    <section id="panel-ai" class="panel" hidden aria-label="AI control panel">
+      <div class="card">
+        <h2 class="card-title">✨ Gemini AI Control</h2>
+
+        <div class="form-group">
+          <label for="announce-zone" class="form-label">Zone for Announcement</label>
+          <select id="announce-zone" class="form-select" aria-describedby="zone-help">
+            <option value="north-stand">North Stand</option>
+            <option value="south-stand">South Stand</option>
+            <option value="east-stand">East Stand</option>
+            <option value="west-stand">West Stand</option>
+            <option value="vip-pavilion">VIP Pavilion</option>
+          </select>
+          <span id="zone-help" class="form-hint">Select the zone to generate an announcement for</span>
+        </div>
+
+        <button id="gen-announce-btn" class="btn btn-accent mt-1" aria-label="Generate PA announcement using Gemini AI">
+          ✨ Generate with Gemini
+        </button>
+
+        <div id="announcement-output" class="announcement-box" aria-live="polite" aria-label="Generated announcement">
+          <p class="placeholder-text">Generated announcement will appear here…</p>
+        </div>
+
+        <button id="copy-announce-btn" class="btn btn-outline mt-1" disabled aria-label="Copy announcement to clipboard">
+          📋 Copy to Clipboard
+        </button>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Natural Language Query</h2>
+        <div class="form-group">
+          <label for="nl-query" class="form-label">Ask about stadium status</label>
+          <textarea id="nl-query" class="form-textarea" rows="3" placeholder="e.g. Which zones need immediate attention?" aria-describedby="nl-help"></textarea>
+          <span id="nl-help" class="form-hint">Use natural language to query crowd conditions</span>
+        </div>
+        <button id="nl-query-btn" class="btn btn-primary" aria-label="Submit natural language query to Gemini">Ask Gemini</button>
+        <div id="nl-result" class="announcement-box" aria-live="polite" aria-label="Query result"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Announcement modal -->
+<div id="announce-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
+  <div class="modal">
+    <h2 id="modal-title">Generate PA Announcement</h2>
+    <p id="modal-desc" class="modal-desc">Gemini will generate a PA announcement based on current crowd conditions.</p>
+    <div id="modal-result" class="announcement-box" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button id="modal-close" class="btn btn-outline" aria-label="Close announcement modal">Close</button>
+    </div>
+  </div>
+</div>
+
+<script defer src="dashboard.js"></script>
+</body>
+</html>

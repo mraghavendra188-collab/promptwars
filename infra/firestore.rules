@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Zone data (public read, staff/admin write) ──────────────
+    match /zones/{zoneId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (request.auth.token.role == 'admin'
+         || request.auth.token.role == 'staff');
+    }
+
+    // ── Gate data (public read, staff/admin write) ──────────────
+    match /gates/{gateId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (request.auth.token.role == 'admin'
+         || request.auth.token.role == 'staff');
+    }
+
+    // ── Check-ins (own data only) ────────────────────────────────
+    match /checkIns/{docId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow read:   if request.auth != null
+        && (resource.data.userId == request.auth.uid
+         || request.auth.token.role == 'admin');
+      allow update, delete: if false; // Immutable logs
+    }
+
+    // ── Audit logs (admin read only, server-side write only) ─────
+    match /auditLogs/{logId} {
+      allow read: if request.auth != null && request.auth.token.role == 'admin';
+      allow write: if false; // Server-side only
+    }
+
+    // ── User profiles ────────────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
